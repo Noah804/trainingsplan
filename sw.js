@@ -1,7 +1,7 @@
 /* Service Worker: App-Shell cachen für Offline-Betrieb.
  * Bei Änderungen an den App-Dateien CACHE_VERSION erhöhen. */
 
-const CACHE_VERSION = 'trainingsplan-v7';
+const CACHE_VERSION = 'trainingsplan-v8';
 const APP_SHELL = [
   './',
   './index.html',

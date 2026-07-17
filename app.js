@@ -5,6 +5,9 @@
 
 'use strict';
 
+// TEMPORÄR: tut so, als wäre Wochenende, um das Nachholen zu testen. Wieder auf false setzen!
+const TEST_WEEKEND = true;
+
 const STORAGE_KEY = 'trainingsplan.v2';
 
 const WEEKDAYS_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -118,6 +121,7 @@ function weekdayIndexOf(iso) {
 
 /** Index in state.workouts für einen Wochentag; -1 am Wochenende. */
 function workoutIndexForToday() {
+  if (TEST_WEEKEND) return -1; // TEMPORÄR: Wochenende simulieren
   const wd = weekdayIndexOf(todayISO());
   if (wd >= 1 && wd <= 5) return wd - 1;
   return -1;
@@ -168,7 +172,7 @@ function missedWorkoutsThisWeek() {
     state.history.filter((h) => h.date >= monday && h.date <= today).map((h) => h.workoutId)
   );
   const todayWd = weekdayIndexOf(today); // 0=So … 6=Sa
-  const weekendNow = todayWd === 0 || todayWd === 6;
+  const weekendNow = TEST_WEEKEND || todayWd === 0 || todayWd === 6;
 
   const missed = [];
   for (let wd = 1; wd <= 5; wd++) {         // Mo(1) … Fr(5)
