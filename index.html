@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Oberkörper-Trainingsplan</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 id="appTitle">Trainingsplan</h1>
+    <p id="appSubtitle" class="subtitle">Oberkörper</p>
+  </header>
+
+  <main id="main">
+    <!-- View: Heute -->
+    <section id="view-today" class="view active">
+      <div class="today-head">
+        <p class="eyebrow">Nächstes Training</p>
+        <h2 id="todayWorkoutName">–</h2>
+        <div class="progress">
+          <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+          <span id="progressText" class="progress-text">0 / 0 erledigt</span>
+        </div>
+      </div>
+
+      <ul id="exerciseList" class="exercise-list"></ul>
+
+      <button id="finishBtn" class="btn btn-primary btn-block">Training abschließen</button>
+      <p id="lastTrained" class="hint"></p>
+    </section>
+
+    <!-- View: Verlauf -->
+    <section id="view-history" class="view">
+      <div class="stats">
+        <div class="stat">
+          <span id="statTotal" class="stat-num">0</span>
+          <span class="stat-label">Trainings</span>
+        </div>
+        <div class="stat">
+          <span id="statStreak" class="stat-num">0</span>
+          <span class="stat-label">Serie (Tage)</span>
+        </div>
+        <div class="stat">
+          <span id="statLast" class="stat-num">–</span>
+          <span class="stat-label">zuletzt</span>
+        </div>
+      </div>
+      <ul id="historyList" class="history-list"></ul>
+      <p id="historyEmpty" class="hint">Noch keine Trainings aufgezeichnet.</p>
+    </section>
+
+    <!-- View: Bearbeiten -->
+    <section id="view-edit" class="view">
+      <p class="eyebrow">Plan bearbeiten</p>
+      <p class="hint">Die Reihenfolge der Einheiten ist die Rotation.</p>
+      <div id="editList" class="edit-list"></div>
+      <button id="addWorkoutBtn" class="btn btn-block">+ Einheit hinzufügen</button>
+      <hr class="sep" />
+      <div class="data-actions">
+        <button id="exportBtn" class="btn btn-small">Backup exportieren</button>
+        <button id="importBtn" class="btn btn-small">Backup importieren</button>
+        <button id="resetBtn" class="btn btn-small btn-danger">Zurücksetzen</button>
+      </div>
+      <input id="importFile" type="file" accept="application/json" hidden />
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="today">
+      <span class="tab-icon">🏋️</span><span class="tab-label">Heute</span>
+    </button>
+    <button class="tab" data-view="history">
+      <span class="tab-icon">📅</span><span class="tab-label">Verlauf</span>
+    </button>
+    <button class="tab" data-view="edit">
+      <span class="tab-icon">✏️</span><span class="tab-label">Bearbeiten</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
