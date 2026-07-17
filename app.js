@@ -1,12 +1,11 @@
 /* Oberkörper-Trainingsplan – Vanilla PWA
  * Plan nach Wochentagen: Mo–Fr je ein Training, Wochenende Pause.
- * Max. ein Training pro Tag. Kalender + tägliche Erinnerung (17:00).
+ * Max. ein Training pro Tag. Kalender + Verlauf.
  * Alle Daten lokal im localStorage. */
 
 'use strict';
 
 const STORAGE_KEY = 'trainingsplan.v2';
-const REMINDER_HOUR = 17;
 
 const WEEKDAYS_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const MONTHS_LONG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -72,7 +71,6 @@ function defaultState() {
     ],
     history: [],
     session: { date: todayISO(), checked: {} },
-    settings: { reminder: false, lastNotified: null, reminderTime: '17:00' },
   };
 }
 
@@ -89,10 +87,6 @@ function load() {
     if (!parsed.session || typeof parsed.session !== 'object') {
       parsed.session = { date: todayISO(), checked: {} };
     }
-    if (!parsed.settings || typeof parsed.settings !== 'object') {
-      parsed.settings = { reminder: false, lastNotified: null, reminderTime: '17:00' };
-    }
-    if (!parsed.settings.reminderTime) parsed.settings.reminderTime = '17:00';
     return parsed;
   } catch (e) {
     console.error('State konnte nicht geladen werden, nutze Standard.', e);
@@ -171,6 +165,7 @@ function renderToday() {
   const nameEl = document.getElementById('todayWorkoutName');
   const listEl = document.getElementById('exerciseList');
   const finishBtn = document.getElementById('finishBtn');
+  const undoBtn = document.getElementById('undoTodayBtn');
   const progressWrap = document.querySelector('#view-today .progress');
   const lastEl = document.getElementById('lastTrained');
 
@@ -184,6 +179,7 @@ function renderToday() {
     nameEl.textContent = 'Pause 💤';
     progressWrap.style.display = 'none';
     finishBtn.style.display = 'none';
+    undoBtn.style.display = 'none';
     lastEl.textContent = 'Am Wochenende ist Ruhetag. Genieß die Erholung!';
     return;
   }
@@ -220,10 +216,12 @@ function renderToday() {
 
   if (alreadyDone) {
     finishBtn.style.display = 'none';
+    undoBtn.style.display = 'block';
     lastEl.textContent = 'Heute schon erledigt ✅ – morgen geht’s weiter!';
   } else {
     finishBtn.style.display = 'block';
     finishBtn.disabled = total === 0;
+    undoBtn.style.display = 'none';
     lastEl.textContent = lastTrainedText();
   }
 }
@@ -266,6 +264,26 @@ function finishWorkout() {
   renderToday();
   renderHistory();
   toast('Stark! Training gespeichert 💪');
+}
+
+/** Heutiges Training rückgängig machen: nur den heutigen Eintrag aus dem Verlauf
+ *  entfernen und die abgehakten Übungen wiederherstellen (alles andere bleibt). */
+function undoToday() {
+  if (!trainedToday()) return;
+  if (!confirm('Heutiges Training zurücksetzen? Nur der heutige Eintrag wird aus dem Verlauf entfernt – dein übriger Verlauf bleibt erhalten.')) return;
+
+  const entry = state.history.find((h) => h.date === todayISO());
+  const checked = {};
+  if (entry && Array.isArray(entry.doneExerciseIds)) {
+    entry.doneExerciseIds.forEach((id) => { checked[id] = true; });
+  }
+  state.history = state.history.filter((h) => h.date !== todayISO());
+  state.session = { date: todayISO(), checked };
+  save();
+
+  renderToday();
+  renderHistory();
+  toast('Heutiges Training zurückgesetzt');
 }
 
 /* ---------- Rendering: Verlauf + Kalender ---------- */
@@ -458,125 +476,6 @@ function iconBtn(label, extraClass, onClick) {
   return b;
 }
 
-/* ---------- Tägliche Erinnerung (17:00) ---------- */
-function notificationsSupported() {
-  return 'Notification' in window;
-}
-
-function reminderParts() {
-  const [h, m] = String(state.settings.reminderTime || '17:00').split(':').map(Number);
-  return { h: h || 0, m: m || 0 };
-}
-
-function nextReminderTime() {
-  const now = new Date();
-  const { h, m } = reminderParts();
-  const t = new Date();
-  t.setHours(h, m, 0, 0);
-  if (t <= now) t.setDate(t.getDate() + 1);
-  return t;
-}
-
-function updateReminderUI() {
-  const btn = document.getElementById('reminderBtn');
-  if (!btn) return;
-  if (!notificationsSupported()) {
-    btn.textContent = 'Nicht unterstützt';
-    btn.disabled = true;
-    return;
-  }
-  const on = state.settings.reminder && Notification.permission === 'granted';
-  btn.textContent = on ? 'Aktiv ✓' : 'Aktivieren';
-  btn.classList.toggle('btn-primary', on);
-
-  const timeInput = document.getElementById('reminderTime');
-  if (timeInput) timeInput.value = state.settings.reminderTime || '17:00';
-  const sub = document.getElementById('reminderSub');
-  if (sub) sub.textContent = 'Werktags um ' + (state.settings.reminderTime || '17:00') + ' Uhr';
-}
-
-function changeReminderTime(val) {
-  if (!val) return;
-  state.settings.reminderTime = val;
-  state.settings.lastNotified = null; // erlaubt heute erneut eine Erinnerung zur neuen Zeit
-  save();
-  updateReminderUI();
-  if (state.settings.reminder) {
-    scheduleReminder();
-    toast('Erinnerungszeit: ' + val + ' Uhr');
-  }
-}
-
-function toggleReminder() {
-  if (state.settings.reminder && Notification.permission === 'granted') {
-    disableReminder();
-  } else {
-    enableReminder();
-  }
-}
-
-async function enableReminder() {
-  if (!notificationsSupported()) { toast('Dein Browser kann keine Benachrichtigungen'); return; }
-  let perm = Notification.permission;
-  if (perm !== 'granted') perm = await Notification.requestPermission();
-  if (perm !== 'granted') { toast('Benachrichtigung wurde nicht erlaubt'); updateReminderUI(); return; }
-  state.settings.reminder = true;
-  save();
-  await scheduleReminder();
-  updateReminderUI();
-  toast('Erinnerung aktiv – werktags 17:00 Uhr');
-}
-
-function disableReminder() {
-  state.settings.reminder = false;
-  save();
-  updateReminderUI();
-  toast('Erinnerung deaktiviert');
-}
-
-/** Best-effort: Benachrichtigung im Voraus planen (falls Browser das unterstützt). */
-async function scheduleReminder() {
-  if (!state.settings.reminder || !('serviceWorker' in navigator)) return;
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    if ('showTrigger' in Notification.prototype && 'TimestampTrigger' in window) {
-      await reg.showNotification('Zeit fürs Training 🏋️', {
-        tag: 'training-reminder',
-        body: 'Dein Oberkörper-Training wartet! 💪',
-        icon: 'icons/icon-192.png',
-        badge: 'icons/icon-192.png',
-        // eslint-disable-next-line no-undef
-        showTrigger: new TimestampTrigger(nextReminderTime().getTime()),
-      });
-    }
-  } catch (e) {
-    console.warn('scheduleReminder fehlgeschlagen', e);
-  }
-}
-
-/** Fallback: Wenn die App nach 17:00 geöffnet wird und noch nicht trainiert wurde. */
-function reminderFallbackCheck() {
-  if (!state.settings.reminder || !notificationsSupported() || Notification.permission !== 'granted') return;
-  const now = new Date();
-  const wd = now.getDay();
-  if (wd < 1 || wd > 5) return;           // Wochenende
-  const { h, m } = reminderParts();
-  if (now.getHours() * 60 + now.getMinutes() < h * 60 + m) return; // vor der eingestellten Zeit
-  if (trainedToday()) return;
-  if (state.settings.lastNotified === todayISO()) return;
-
-  state.settings.lastNotified = todayISO();
-  save();
-  const opts = { body: 'Dein Training wartet noch heute! 💪', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'training-reminder' };
-  try {
-    navigator.serviceWorker.ready
-      .then((reg) => reg.showNotification('Zeit fürs Training 🏋️', opts))
-      .catch(() => new Notification('Zeit fürs Training 🏋️', opts));
-  } catch (e) {
-    try { new Notification('Zeit fürs Training 🏋️', opts); } catch (_) {}
-  }
-}
-
 /* ---------- Daten: Export / Import / Reset ---------- */
 function exportData() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -600,10 +499,8 @@ function importData(file) {
       state = data;
       if (!Array.isArray(state.history)) state.history = [];
       if (!state.session) state.session = { date: todayISO(), checked: {} };
-      if (!state.settings) state.settings = { reminder: false, lastNotified: null };
       save();
       renderAll();
-      updateReminderUI();
       toast('Backup importiert');
     } catch (e) {
       toast('Import fehlgeschlagen: ungültige Datei');
@@ -617,7 +514,6 @@ function resetData() {
   state = defaultState();
   save();
   renderAll();
-  updateReminderUI();
   toast('Zurückgesetzt');
 }
 
@@ -658,13 +554,11 @@ function init() {
     tab.addEventListener('click', () => switchView(tab.dataset.view));
   });
   document.getElementById('finishBtn').addEventListener('click', finishWorkout);
+  document.getElementById('undoTodayBtn').addEventListener('click', undoToday);
   document.getElementById('exportBtn').addEventListener('click', exportData);
   document.getElementById('resetBtn').addEventListener('click', resetData);
   document.getElementById('calPrev').addEventListener('click', () => shiftMonth(-1));
   document.getElementById('calNext').addEventListener('click', () => shiftMonth(1));
-  document.getElementById('reminderBtn').addEventListener('click', toggleReminder);
-  const reminderTimeInput = document.getElementById('reminderTime');
-  if (reminderTimeInput) reminderTimeInput.addEventListener('change', (e) => changeReminderTime(e.target.value));
 
   const importFile = document.getElementById('importFile');
   document.getElementById('importBtn').addEventListener('click', () => importFile.click());
@@ -674,15 +568,10 @@ function init() {
   });
 
   renderAll();
-  updateReminderUI();
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js')
-        .then(() => {
-          reminderFallbackCheck();
-          scheduleReminder();
-        })
         .catch((err) => console.warn('SW-Registrierung fehlgeschlagen', err));
     });
   }

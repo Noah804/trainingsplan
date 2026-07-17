@@ -30,6 +30,7 @@
       <ul id="exerciseList" class="exercise-list"></ul>
 
       <button id="finishBtn" class="btn btn-primary btn-block">Training abschließen</button>
+      <button id="undoTodayBtn" class="btn btn-block btn-danger">Heutiges Training zurücksetzen</button>
       <p id="lastTrained" class="hint"></p>
     </section>
 
@@ -69,17 +70,6 @@
       <p class="eyebrow">Plan bearbeiten</p>
       <p class="hint">Mo–Fr je ein Training. Übungen kannst du pro Tag anpassen.</p>
       <div id="editList" class="edit-list"></div>
-      <hr class="sep" />
-      <div class="setting-row">
-        <div>
-          <div class="setting-title">🔔 Tägliche Erinnerung</div>
-          <div class="setting-sub" id="reminderSub">Werktags um 17:00 Uhr</div>
-        </div>
-        <div class="reminder-controls">
-          <input type="time" id="reminderTime" class="time-input" value="17:00" aria-label="Uhrzeit der Erinnerung" />
-          <button id="reminderBtn" class="btn btn-small">Aktivieren</button>
-        </div>
-      </div>
       <hr class="sep" />
       <div class="data-actions">
         <button id="exportBtn" class="btn btn-small">Backup exportieren</button>

@@ -111,6 +111,7 @@ body {
 .btn-primary:disabled { opacity: .4; box-shadow: none; cursor: not-allowed; }
 .btn-small { padding: 11px 12px; font-size: .85rem; flex: 1; font-weight: 600; }
 .btn-danger { color: var(--danger); border-color: rgba(251, 113, 133, .4); }
+#undoTodayBtn { margin-top: 12px; }
 
 .hint { color: var(--text-dim); font-size: .88rem; margin-top: 14px; text-align: center; }
 
@@ -149,18 +150,6 @@ body {
 .cal-x { color: var(--accent-2); font-weight: 800; line-height: 1; font-size: 1.05rem; }
 .cal-legend { margin-top: 12px; font-size: .78rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 .cal-legend .cal-x { font-size: .95rem; }
-
-/* Einstellungen */
-.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.setting-title { font-weight: 700; }
-.setting-sub { font-size: .8rem; color: var(--text-dim); margin-top: 2px; }
-.setting-row .btn-small { flex: 0 0 auto; min-width: 108px; }
-.reminder-controls { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
-.time-input {
-  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
-  border-radius: 11px; padding: 9px 10px; text-align: center; min-width: 108px;
-}
-.time-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* History */
 .history-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
