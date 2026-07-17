@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0b0810" />
   <title>Oberkörper-Trainingsplan</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -19,7 +19,7 @@
     <!-- View: Heute -->
     <section id="view-today" class="view active">
       <div class="today-head">
-        <p class="eyebrow">Nächstes Training</p>
+        <p class="eyebrow" id="todayEyebrow">Heute</p>
         <h2 id="todayWorkoutName">–</h2>
         <div class="progress">
           <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
@@ -41,14 +41,25 @@
           <span class="stat-label">Trainings</span>
         </div>
         <div class="stat">
-          <span id="statStreak" class="stat-num">0</span>
-          <span class="stat-label">Serie (Tage)</span>
+          <span id="statWeek" class="stat-num">0</span>
+          <span class="stat-label">diese Woche</span>
         </div>
         <div class="stat">
           <span id="statLast" class="stat-num">–</span>
           <span class="stat-label">zuletzt</span>
         </div>
       </div>
+
+      <div class="calendar">
+        <div class="cal-head">
+          <button id="calPrev" class="cal-nav" aria-label="Vorheriger Monat">‹</button>
+          <span id="calTitle" class="cal-title">–</span>
+          <button id="calNext" class="cal-nav" aria-label="Nächster Monat">›</button>
+        </div>
+        <div id="calGrid" class="cal-grid"></div>
+        <p class="cal-legend"><span class="cal-x">✕</span> = trainiert</p>
+      </div>
+
       <ul id="historyList" class="history-list"></ul>
       <p id="historyEmpty" class="hint">Noch keine Trainings aufgezeichnet.</p>
     </section>
@@ -56,9 +67,19 @@
     <!-- View: Bearbeiten -->
     <section id="view-edit" class="view">
       <p class="eyebrow">Plan bearbeiten</p>
-      <p class="hint">Die Reihenfolge der Einheiten ist die Rotation.</p>
+      <p class="hint">Mo–Fr je ein Training. Übungen kannst du pro Tag anpassen.</p>
       <div id="editList" class="edit-list"></div>
-      <button id="addWorkoutBtn" class="btn btn-block">+ Einheit hinzufügen</button>
+      <hr class="sep" />
+      <div class="setting-row">
+        <div>
+          <div class="setting-title">🔔 Tägliche Erinnerung</div>
+          <div class="setting-sub" id="reminderSub">Werktags um 17:00 Uhr</div>
+        </div>
+        <div class="reminder-controls">
+          <input type="time" id="reminderTime" class="time-input" value="17:00" aria-label="Uhrzeit der Erinnerung" />
+          <button id="reminderBtn" class="btn btn-small">Aktivieren</button>
+        </div>
+      </div>
       <hr class="sep" />
       <div class="data-actions">
         <button id="exportBtn" class="btn btn-small">Backup exportieren</button>

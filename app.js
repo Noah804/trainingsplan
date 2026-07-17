@@ -1,9 +1,15 @@
 /* Oberkörper-Trainingsplan – Vanilla PWA
- * Alle Daten liegen lokal im localStorage. Kein Server, keine Cloud. */
+ * Plan nach Wochentagen: Mo–Fr je ein Training, Wochenende Pause.
+ * Max. ein Training pro Tag. Kalender + tägliche Erinnerung (17:00).
+ * Alle Daten lokal im localStorage. */
 
 'use strict';
 
-const STORAGE_KEY = 'trainingsplan.v1';
+const STORAGE_KEY = 'trainingsplan.v2';
+const REMINDER_HOUR = 17;
+
+const WEEKDAYS_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+const MONTHS_LONG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
 /* ---------- ID-Helfer ---------- */
 let idCounter = 0;
@@ -12,40 +18,61 @@ function uid(prefix) {
   return prefix + '_' + Date.now().toString(36) + '_' + idCounter.toString(36);
 }
 
-/* ---------- Standardplan (3er-Oberkörper-Split) ---------- */
+/* ---------- Standardplan: Mo–Fr, Oberkörper ---------- */
 function defaultState() {
-  const mk = (name, exercises) => ({
+  const mk = (day, name, exercises) => ({
     id: uid('w'),
+    day,
     name,
     exercises: exercises.map((n) => ({ id: uid('e'), name: n })),
   });
   return {
+    // Index 0 = Montag … 4 = Freitag
     workouts: [
-      mk('Drücken', [
+      mk('Mo', 'Brust & Trizeps', [
         'Bankdrücken (Langhantel)',
         'Schrägbankdrücken (Kurzhantel)',
         'Butterfly / Kabel-Fly',
         'Trizeps-Pushdown (Kabel)',
         'French Press',
+        'Liegestütze',
       ]),
-      mk('Ziehen', [
+      mk('Di', 'Rücken & Bizeps', [
         'Klimmzüge / Latzug',
-        'Rudern (Kurzhantel oder Kabel)',
+        'Langhantelrudern',
+        'Kabelrudern (eng)',
         'Face Pulls',
         'Bizeps-Curls (Langhantel)',
         'Hammer-Curls',
       ]),
-      mk('Schultern & Arme', [
+      mk('Mi', 'Schultern', [
         'Schulterdrücken (Kurzhantel)',
         'Seitheben',
+        'Frontheben',
         'Reverse Flys',
-        'Bizeps-Curls (Kurzhantel)',
+        'Upright Rows',
+        'Shrugs',
+      ]),
+      mk('Do', 'Arme', [
+        'Bizeps-Curls (Langhantel)',
+        'Hammer-Curls',
+        'Konzentrationscurls',
         'Trizeps-Dips',
+        'Trizeps-Pushdown',
+        'Overhead-Trizeps (Seil)',
+      ]),
+      mk('Fr', 'Oberkörper komplett', [
+        'Bankdrücken',
+        'Latzug',
+        'Schulterdrücken',
+        'Rudern (Kurzhantel)',
+        'Bizeps-Curls',
+        'Trizeps-Pushdown',
       ]),
     ],
-    currentIndex: 0,
     history: [],
-    session: { workoutIndex: 0, checked: {} },
+    session: { date: todayISO(), checked: {} },
+    settings: { reminder: false, lastNotified: null, reminderTime: '17:00' },
   };
 }
 
@@ -57,13 +84,15 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw);
-    // Grundstruktur absichern
     if (!Array.isArray(parsed.workouts) || parsed.workouts.length === 0) return defaultState();
-    if (typeof parsed.currentIndex !== 'number') parsed.currentIndex = 0;
     if (!Array.isArray(parsed.history)) parsed.history = [];
     if (!parsed.session || typeof parsed.session !== 'object') {
-      parsed.session = { workoutIndex: parsed.currentIndex, checked: {} };
+      parsed.session = { date: todayISO(), checked: {} };
     }
+    if (!parsed.settings || typeof parsed.settings !== 'object') {
+      parsed.settings = { reminder: false, lastNotified: null, reminderTime: '17:00' };
+    }
+    if (!parsed.settings.reminderTime) parsed.settings.reminderTime = '17:00';
     return parsed;
   } catch (e) {
     console.error('State konnte nicht geladen werden, nutze Standard.', e);
@@ -80,33 +109,24 @@ function save() {
   }
 }
 
-/* ---------- Hilfen ---------- */
-function clampIndex(i) {
-  const n = state.workouts.length;
-  if (n === 0) return 0;
-  return ((i % n) + n) % n;
-}
-
-function currentWorkout() {
-  return state.workouts[clampIndex(state.currentIndex)];
-}
-
-/** Session neu ausrichten, falls sie nicht mehr zur aktuellen Einheit passt. */
-function ensureSession() {
-  const idx = clampIndex(state.currentIndex);
-  if (state.session.workoutIndex !== idx) {
-    state.session = { workoutIndex: idx, checked: {} };
-  }
-  if (!state.session.checked || typeof state.session.checked !== 'object') {
-    state.session.checked = {};
-  }
-}
+/* ---------- Datum-Helfer ---------- */
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
 function todayISO() {
-  // Lokales Datum als YYYY-MM-DD (nicht UTC, damit der Tag stimmt)
   const d = new Date();
   const off = d.getTimezoneOffset();
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+}
+
+function weekdayIndexOf(iso) {
+  return new Date(iso + 'T00:00:00').getDay(); // 0=So … 6=Sa
+}
+
+/** Index in state.workouts für einen Wochentag; -1 am Wochenende. */
+function workoutIndexForToday() {
+  const wd = weekdayIndexOf(todayISO());
+  if (wd >= 1 && wd <= 5) return wd - 1;
+  return -1;
 }
 
 function formatDate(iso) {
@@ -121,62 +141,117 @@ function daysBetween(isoA, isoB) {
   return Math.round((b - a) / 86400000);
 }
 
+/** Montag (ISO) der Woche, in der `iso` liegt. */
+function startOfWeekISO(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  const wd = d.getDay();
+  const diff = wd === 0 ? -6 : 1 - wd;
+  d.setDate(d.getDate() + diff);
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+}
+
+function trainedToday() {
+  return state.history.some((h) => h.date === todayISO());
+}
+
+function sessionForToday() {
+  if (!state.session || state.session.date !== todayISO()) {
+    state.session = { date: todayISO(), checked: {} };
+  }
+  if (!state.session.checked || typeof state.session.checked !== 'object') {
+    state.session.checked = {};
+  }
+  return state.session;
+}
+
 /* ---------- Rendering: Heute ---------- */
 function renderToday() {
-  ensureSession();
-  const wo = currentWorkout();
+  const eyebrow = document.getElementById('todayEyebrow');
   const nameEl = document.getElementById('todayWorkoutName');
   const listEl = document.getElementById('exerciseList');
   const finishBtn = document.getElementById('finishBtn');
+  const progressWrap = document.querySelector('#view-today .progress');
+  const lastEl = document.getElementById('lastTrained');
 
-  if (!wo) {
-    nameEl.textContent = 'Keine Einheit';
-    listEl.innerHTML = '';
-    finishBtn.disabled = true;
+  listEl.innerHTML = '';
+  const idx = workoutIndexForToday();
+  const wdLong = WEEKDAYS_LONG[weekdayIndexOf(todayISO())];
+
+  // --- Wochenende: Pause ---
+  if (idx === -1) {
+    eyebrow.textContent = wdLong;
+    nameEl.textContent = 'Pause 💤';
+    progressWrap.style.display = 'none';
+    finishBtn.style.display = 'none';
+    lastEl.textContent = 'Am Wochenende ist Ruhetag. Genieß die Erholung!';
     return;
   }
 
+  const wo = state.workouts[idx];
+  eyebrow.textContent = wdLong;
   nameEl.textContent = wo.name;
-  listEl.innerHTML = '';
+  progressWrap.style.display = 'flex';
+
+  const alreadyDone = trainedToday();
+  const session = sessionForToday();
+
+  let doneSet;
+  if (alreadyDone) {
+    const entry = state.history.find((h) => h.date === todayISO());
+    doneSet = new Set(entry ? entry.doneExerciseIds : []);
+  } else {
+    doneSet = new Set(wo.exercises.filter((ex) => session.checked[ex.id]).map((ex) => ex.id));
+  }
 
   wo.exercises.forEach((ex) => {
     const li = document.createElement('li');
-    li.className = 'exercise' + (state.session.checked[ex.id] ? ' done' : '');
+    li.className = 'exercise' + (doneSet.has(ex.id) ? ' done' : '') + (alreadyDone ? ' locked' : '');
     li.innerHTML = `<span class="check">✓</span><span class="name"></span>`;
     li.querySelector('.name').textContent = ex.name;
-    li.addEventListener('click', () => toggleExercise(ex.id));
+    if (!alreadyDone) li.addEventListener('click', () => toggleExercise(ex.id));
     listEl.appendChild(li);
   });
 
   const total = wo.exercises.length;
-  const done = wo.exercises.filter((ex) => state.session.checked[ex.id]).length;
+  const done = doneSet.size;
   document.getElementById('progressText').textContent = `${done} / ${total} erledigt`;
   document.getElementById('progressFill').style.width = total ? (done / total) * 100 + '%' : '0%';
-  finishBtn.disabled = total === 0;
 
-  // "zuletzt trainiert"
-  const lastEl = document.getElementById('lastTrained');
-  if (state.history.length) {
-    const last = state.history[state.history.length - 1];
-    const diff = daysBetween(last.date, todayISO());
-    const when = diff === 0 ? 'heute' : diff === 1 ? 'gestern' : `vor ${diff} Tagen`;
-    lastEl.textContent = `Zuletzt trainiert: ${when} (${last.workoutName})`;
+  if (alreadyDone) {
+    finishBtn.style.display = 'none';
+    lastEl.textContent = 'Heute schon erledigt ✅ – morgen geht’s weiter!';
   } else {
-    lastEl.textContent = 'Noch kein Training aufgezeichnet.';
+    finishBtn.style.display = 'block';
+    finishBtn.disabled = total === 0;
+    lastEl.textContent = lastTrainedText();
   }
 }
 
+function lastTrainedText() {
+  if (!state.history.length) return 'Noch kein Training aufgezeichnet.';
+  const last = state.history[state.history.length - 1];
+  const diff = daysBetween(last.date, todayISO());
+  const when = diff === 0 ? 'heute' : diff === 1 ? 'gestern' : `vor ${diff} Tagen`;
+  return `Zuletzt trainiert: ${when} (${last.workoutName}).`;
+}
+
 function toggleExercise(exId) {
-  ensureSession();
-  state.session.checked[exId] = !state.session.checked[exId];
+  if (trainedToday()) return;
+  const session = sessionForToday();
+  session.checked[exId] = !session.checked[exId];
   save();
   renderToday();
 }
 
 function finishWorkout() {
-  const wo = currentWorkout();
-  if (!wo) return;
-  const doneIds = wo.exercises.filter((ex) => state.session.checked[ex.id]).map((ex) => ex.id);
+  const idx = workoutIndexForToday();
+  if (idx === -1) { toast('Am Wochenende ist Pause 🙂'); return; }
+  if (trainedToday()) { toast('Heute schon trainiert – morgen wieder!'); return; }
+
+  const wo = state.workouts[idx];
+  const session = sessionForToday();
+  const doneIds = wo.exercises.filter((ex) => session.checked[ex.id]).map((ex) => ex.id);
 
   state.history.push({
     date: todayISO(),
@@ -185,39 +260,89 @@ function finishWorkout() {
     doneExerciseIds: doneIds,
     totalExercises: wo.exercises.length,
   });
-
-  // Rotation weiterschalten + Session zurücksetzen
-  state.currentIndex = clampIndex(state.currentIndex + 1);
-  state.session = { workoutIndex: state.currentIndex, checked: {} };
+  state.session = { date: todayISO(), checked: {} };
   save();
 
   renderToday();
   renderHistory();
-  const next = currentWorkout();
-  toast(next ? `Gespeichert! Nächstes Mal: ${next.name}` : 'Gespeichert!');
+  toast('Stark! Training gespeichert 💪');
 }
 
-/* ---------- Rendering: Verlauf ---------- */
-function computeStreak() {
-  if (!state.history.length) return 0;
-  // Einzigartige Trainingstage, absteigend
-  const days = [...new Set(state.history.map((h) => h.date))].sort().reverse();
-  let streak = 0;
-  let cursor = todayISO();
-  // Serie zählt ab heute oder gestern rückwärts, solange lückenlos jeder Tag ein Training hat.
-  const startDiff = daysBetween(days[0], cursor);
-  if (startDiff > 1) return 0; // letzte Einheit älter als gestern -> keine laufende Serie
-  cursor = days[0];
-  streak = 1;
-  for (let i = 1; i < days.length; i++) {
-    if (daysBetween(days[i], cursor) === 1) {
-      streak++;
-      cursor = days[i];
-    } else {
-      break;
-    }
+/* ---------- Rendering: Verlauf + Kalender ---------- */
+function trainingsThisWeek() {
+  const monday = startOfWeekISO(todayISO());
+  return state.history.filter((h) => h.date >= monday).length;
+}
+
+let calState = null; // { year, month }  (month 0-basiert)
+
+function ensureCalState() {
+  if (!calState) {
+    const d = new Date();
+    calState = { year: d.getFullYear(), month: d.getMonth() };
   }
-  return streak;
+}
+
+function trainedDatesSet() {
+  return new Set(state.history.map((h) => h.date));
+}
+
+function renderCalendar() {
+  ensureCalState();
+  const { year, month } = calState;
+  const grid = document.getElementById('calGrid');
+  document.getElementById('calTitle').textContent = MONTHS_LONG[month] + ' ' + year;
+  grid.innerHTML = '';
+
+  ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach((d) => {
+    const el = document.createElement('div');
+    el.className = 'cal-dow';
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  const firstDow = new Date(year, month, 1).getDay(); // 0=So
+  const offset = firstDow === 0 ? 6 : firstDow - 1;   // Montag-basiert
+  for (let i = 0; i < offset; i++) {
+    const el = document.createElement('div');
+    el.className = 'cal-cell empty';
+    grid.appendChild(el);
+  }
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const trained = trainedDatesSet();
+  const today = todayISO();
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const iso = year + '-' + pad2(month + 1) + '-' + pad2(day);
+    const el = document.createElement('div');
+    el.className = 'cal-cell';
+    if (iso === today) el.classList.add('today');
+
+    const num = document.createElement('span');
+    num.className = 'cal-num';
+    num.textContent = day;
+    el.appendChild(num);
+
+    if (trained.has(iso)) {
+      el.classList.add('trained');
+      const x = document.createElement('span');
+      x.className = 'cal-x';
+      x.textContent = '✕';
+      el.appendChild(x);
+    }
+    grid.appendChild(el);
+  }
+}
+
+function shiftMonth(delta) {
+  ensureCalState();
+  let m = calState.month + delta;
+  let y = calState.year;
+  if (m < 0) { m = 11; y -= 1; }
+  if (m > 11) { m = 0; y += 1; }
+  calState = { year: y, month: m };
+  renderCalendar();
 }
 
 function renderHistory() {
@@ -226,7 +351,7 @@ function renderHistory() {
   listEl.innerHTML = '';
 
   document.getElementById('statTotal').textContent = state.history.length;
-  document.getElementById('statStreak').textContent = computeStreak();
+  document.getElementById('statWeek').textContent = trainingsThisWeek();
 
   if (state.history.length) {
     const last = state.history[state.history.length - 1];
@@ -238,7 +363,8 @@ function renderHistory() {
     emptyEl.style.display = 'block';
   }
 
-  // Neueste zuerst
+  renderCalendar();
+
   [...state.history].reverse().forEach((h) => {
     const li = document.createElement('li');
     li.className = 'history-item';
@@ -261,29 +387,27 @@ function renderEdit() {
   const wrap = document.getElementById('editList');
   wrap.innerHTML = '';
 
-  state.workouts.forEach((wo, wi) => {
+  state.workouts.forEach((wo) => {
     const card = document.createElement('div');
     card.className = 'edit-workout';
 
     const head = document.createElement('div');
     head.className = 'edit-workout-head';
-    head.innerHTML = `<span class="idx">${wi + 1}.</span>`;
+    const badge = document.createElement('span');
+    badge.className = 'idx';
+    badge.textContent = wo.day || '?';
+    head.appendChild(badge);
 
     const nameInput = document.createElement('input');
     nameInput.className = 'edit-input wname';
     nameInput.value = wo.name;
-    nameInput.setAttribute('aria-label', 'Name der Einheit');
+    nameInput.setAttribute('aria-label', 'Name des Trainings');
     nameInput.addEventListener('change', () => {
-      wo.name = nameInput.value.trim() || 'Einheit';
+      wo.name = nameInput.value.trim() || 'Training';
       save();
       renderToday();
     });
     head.appendChild(nameInput);
-
-    const up = iconBtn('▲', 'move', () => moveWorkout(wi, -1));
-    const down = iconBtn('▼', 'move', () => moveWorkout(wi, 1));
-    const delW = iconBtn('🗑', 'del', () => deleteWorkout(wi));
-    head.append(up, down, delW);
     card.appendChild(head);
 
     const exList = document.createElement('ul');
@@ -334,41 +458,123 @@ function iconBtn(label, extraClass, onClick) {
   return b;
 }
 
-function moveWorkout(index, dir) {
-  const j = index + dir;
-  if (j < 0 || j >= state.workouts.length) return;
-  const arr = state.workouts;
-  [arr[index], arr[j]] = [arr[j], arr[index]];
-  // currentIndex bleibt auf derselben logischen Position stehen; einfachster sicherer Ansatz:
-  state.currentIndex = clampIndex(state.currentIndex);
-  save();
-  renderEdit();
-  renderToday();
+/* ---------- Tägliche Erinnerung (17:00) ---------- */
+function notificationsSupported() {
+  return 'Notification' in window;
 }
 
-function deleteWorkout(index) {
-  if (state.workouts.length <= 1) {
-    toast('Mindestens eine Einheit muss bleiben.');
+function reminderParts() {
+  const [h, m] = String(state.settings.reminderTime || '17:00').split(':').map(Number);
+  return { h: h || 0, m: m || 0 };
+}
+
+function nextReminderTime() {
+  const now = new Date();
+  const { h, m } = reminderParts();
+  const t = new Date();
+  t.setHours(h, m, 0, 0);
+  if (t <= now) t.setDate(t.getDate() + 1);
+  return t;
+}
+
+function updateReminderUI() {
+  const btn = document.getElementById('reminderBtn');
+  if (!btn) return;
+  if (!notificationsSupported()) {
+    btn.textContent = 'Nicht unterstützt';
+    btn.disabled = true;
     return;
   }
-  if (!confirm(`Einheit "${state.workouts[index].name}" wirklich löschen?`)) return;
-  state.workouts.splice(index, 1);
-  state.currentIndex = clampIndex(state.currentIndex);
-  state.session = { workoutIndex: state.currentIndex, checked: {} };
-  save();
-  renderEdit();
-  renderToday();
+  const on = state.settings.reminder && Notification.permission === 'granted';
+  btn.textContent = on ? 'Aktiv ✓' : 'Aktivieren';
+  btn.classList.toggle('btn-primary', on);
+
+  const timeInput = document.getElementById('reminderTime');
+  if (timeInput) timeInput.value = state.settings.reminderTime || '17:00';
+  const sub = document.getElementById('reminderSub');
+  if (sub) sub.textContent = 'Werktags um ' + (state.settings.reminderTime || '17:00') + ' Uhr';
 }
 
-function addWorkout() {
-  state.workouts.push({
-    id: uid('w'),
-    name: 'Neue Einheit',
-    exercises: [{ id: uid('e'), name: 'Neue Übung' }],
-  });
+function changeReminderTime(val) {
+  if (!val) return;
+  state.settings.reminderTime = val;
+  state.settings.lastNotified = null; // erlaubt heute erneut eine Erinnerung zur neuen Zeit
   save();
-  renderEdit();
-  renderToday();
+  updateReminderUI();
+  if (state.settings.reminder) {
+    scheduleReminder();
+    toast('Erinnerungszeit: ' + val + ' Uhr');
+  }
+}
+
+function toggleReminder() {
+  if (state.settings.reminder && Notification.permission === 'granted') {
+    disableReminder();
+  } else {
+    enableReminder();
+  }
+}
+
+async function enableReminder() {
+  if (!notificationsSupported()) { toast('Dein Browser kann keine Benachrichtigungen'); return; }
+  let perm = Notification.permission;
+  if (perm !== 'granted') perm = await Notification.requestPermission();
+  if (perm !== 'granted') { toast('Benachrichtigung wurde nicht erlaubt'); updateReminderUI(); return; }
+  state.settings.reminder = true;
+  save();
+  await scheduleReminder();
+  updateReminderUI();
+  toast('Erinnerung aktiv – werktags 17:00 Uhr');
+}
+
+function disableReminder() {
+  state.settings.reminder = false;
+  save();
+  updateReminderUI();
+  toast('Erinnerung deaktiviert');
+}
+
+/** Best-effort: Benachrichtigung im Voraus planen (falls Browser das unterstützt). */
+async function scheduleReminder() {
+  if (!state.settings.reminder || !('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if ('showTrigger' in Notification.prototype && 'TimestampTrigger' in window) {
+      await reg.showNotification('Zeit fürs Training 🏋️', {
+        tag: 'training-reminder',
+        body: 'Dein Oberkörper-Training wartet! 💪',
+        icon: 'icons/icon-192.png',
+        badge: 'icons/icon-192.png',
+        // eslint-disable-next-line no-undef
+        showTrigger: new TimestampTrigger(nextReminderTime().getTime()),
+      });
+    }
+  } catch (e) {
+    console.warn('scheduleReminder fehlgeschlagen', e);
+  }
+}
+
+/** Fallback: Wenn die App nach 17:00 geöffnet wird und noch nicht trainiert wurde. */
+function reminderFallbackCheck() {
+  if (!state.settings.reminder || !notificationsSupported() || Notification.permission !== 'granted') return;
+  const now = new Date();
+  const wd = now.getDay();
+  if (wd < 1 || wd > 5) return;           // Wochenende
+  const { h, m } = reminderParts();
+  if (now.getHours() * 60 + now.getMinutes() < h * 60 + m) return; // vor der eingestellten Zeit
+  if (trainedToday()) return;
+  if (state.settings.lastNotified === todayISO()) return;
+
+  state.settings.lastNotified = todayISO();
+  save();
+  const opts = { body: 'Dein Training wartet noch heute! 💪', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'training-reminder' };
+  try {
+    navigator.serviceWorker.ready
+      .then((reg) => reg.showNotification('Zeit fürs Training 🏋️', opts))
+      .catch(() => new Notification('Zeit fürs Training 🏋️', opts));
+  } catch (e) {
+    try { new Notification('Zeit fürs Training 🏋️', opts); } catch (_) {}
+  }
 }
 
 /* ---------- Daten: Export / Import / Reset ---------- */
@@ -392,11 +598,12 @@ function importData(file) {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data.workouts)) throw new Error('Ungültiges Format');
       state = data;
-      if (typeof state.currentIndex !== 'number') state.currentIndex = 0;
       if (!Array.isArray(state.history)) state.history = [];
-      if (!state.session) state.session = { workoutIndex: state.currentIndex, checked: {} };
+      if (!state.session) state.session = { date: todayISO(), checked: {} };
+      if (!state.settings) state.settings = { reminder: false, lastNotified: null };
       save();
       renderAll();
+      updateReminderUI();
       toast('Backup importiert');
     } catch (e) {
       toast('Import fehlgeschlagen: ungültige Datei');
@@ -410,6 +617,7 @@ function resetData() {
   state = defaultState();
   save();
   renderAll();
+  updateReminderUI();
   toast('Zurückgesetzt');
 }
 
@@ -450,9 +658,14 @@ function init() {
     tab.addEventListener('click', () => switchView(tab.dataset.view));
   });
   document.getElementById('finishBtn').addEventListener('click', finishWorkout);
-  document.getElementById('addWorkoutBtn').addEventListener('click', addWorkout);
   document.getElementById('exportBtn').addEventListener('click', exportData);
   document.getElementById('resetBtn').addEventListener('click', resetData);
+  document.getElementById('calPrev').addEventListener('click', () => shiftMonth(-1));
+  document.getElementById('calNext').addEventListener('click', () => shiftMonth(1));
+  document.getElementById('reminderBtn').addEventListener('click', toggleReminder);
+  const reminderTimeInput = document.getElementById('reminderTime');
+  if (reminderTimeInput) reminderTimeInput.addEventListener('change', (e) => changeReminderTime(e.target.value));
+
   const importFile = document.getElementById('importFile');
   document.getElementById('importBtn').addEventListener('click', () => importFile.click());
   importFile.addEventListener('change', (e) => {
@@ -461,11 +674,16 @@ function init() {
   });
 
   renderAll();
+  updateReminderUI();
 
-  // Service Worker registrieren (nur in sicherem Kontext verfügbar)
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('SW-Registrierung fehlgeschlagen', err));
+      navigator.serviceWorker.register('sw.js')
+        .then(() => {
+          reminderFallbackCheck();
+          scheduleReminder();
+        })
+        .catch((err) => console.warn('SW-Registrierung fehlgeschlagen', err));
     });
   }
 }

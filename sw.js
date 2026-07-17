@@ -1,7 +1,7 @@
 /* Service Worker: App-Shell cachen für Offline-Betrieb.
  * Bei Änderungen an den App-Dateien CACHE_VERSION erhöhen. */
 
-const CACHE_VERSION = 'trainingsplan-v1';
+const CACHE_VERSION = 'trainingsplan-v5';
 const APP_SHELL = [
   './',
   './index.html',
@@ -23,6 +23,19 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
+  );
+});
+
+// Klick auf die Erinnerungs-Benachrichtigung öffnet/fokussiert die App.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ('focus' in c) return c.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow('./index.html');
+    })
   );
 });
 
