@@ -205,28 +205,25 @@ function renderToday() {
 
   // --- Wochenende ---
   if (idx === -1) {
-    // Heute schon ein (Nachhol-)Training abgeschlossen?
-    if (trainedToday()) {
-      const entry = state.history.find((h) => h.date === todayISO());
-      eyebrow.textContent = wdLong;
-      nameEl.textContent = entry ? entry.workoutName : 'Erledigt';
-      progressWrap.style.display = 'none';
-      finishBtn.style.display = 'none';
-      undoBtn.style.display = 'block';
-      lastEl.textContent = 'Nachhol-Training erledigt ✅';
-      return;
-    }
-
     const missed = missedWorkoutsThisWeek();
+    const doneTodayCount = state.history.filter((h) => h.date === todayISO()).length;
 
-    // Nichts verpasst → normale Pause
+    // Nichts (mehr) offen → Pause bzw. "alles nachgeholt"
     if (missed.length === 0) {
       eyebrow.textContent = wdLong;
-      nameEl.textContent = 'Pause 💤';
       progressWrap.style.display = 'none';
       finishBtn.style.display = 'none';
-      undoBtn.style.display = 'none';
-      lastEl.textContent = 'Am Wochenende ist Ruhetag. Genieß die Erholung!';
+      if (doneTodayCount > 0) {
+        nameEl.textContent = 'Alles nachgeholt ✅';
+        undoBtn.style.display = 'block';
+        lastEl.textContent = doneTodayCount === 1
+          ? 'Heute 1 Training nachgeholt. Stark! 💪'
+          : 'Heute ' + doneTodayCount + ' Trainings nachgeholt. Stark! 💪';
+      } else {
+        nameEl.textContent = 'Pause 💤';
+        undoBtn.style.display = 'none';
+        lastEl.textContent = 'Am Wochenende ist Ruhetag. Genieß die Erholung!';
+      }
       return;
     }
 
@@ -235,13 +232,13 @@ function renderToday() {
       catchUpWorkoutId = null;
     }
 
-    // Noch nichts gewählt → Auswahl der verpassten Trainings zeigen
+    // Noch nichts gewählt → Auswahl der (verbleibenden) verpassten Trainings zeigen
     if (!catchUpWorkoutId) {
       eyebrow.textContent = wdLong + ' · Nachholen';
-      nameEl.textContent = missed.length === 1 ? '1 Training verpasst' : missed.length + ' Trainings verpasst';
+      nameEl.textContent = missed.length === 1 ? 'Noch 1 Training offen' : 'Noch ' + missed.length + ' Trainings offen';
       progressWrap.style.display = 'none';
       finishBtn.style.display = 'none';
-      undoBtn.style.display = 'none';
+      undoBtn.style.display = doneTodayCount > 0 ? 'block' : 'none';
       picker.hidden = false;
       missed.forEach((m) => {
         const b = document.createElement('button');
@@ -252,7 +249,9 @@ function renderToday() {
         b.addEventListener('click', () => { catchUpWorkoutId = m.id; renderToday(); });
         picker.appendChild(b);
       });
-      lastEl.textContent = 'Diese Woche verpasst – hol ein Training am Wochenende nach.';
+      lastEl.textContent = doneTodayCount > 0
+        ? 'Weiter geht’s – noch ein Training nachholen oder unten das letzte zurücksetzen.'
+        : 'Diese Woche verpasst – hol dir ein oder mehrere Trainings am Wochenende zurück.';
       return;
     }
 
@@ -317,7 +316,8 @@ function lastTrainedText() {
 }
 
 function toggleExercise(exId) {
-  if (trainedToday()) return;
+  const isCatchUp = workoutIndexForToday() === -1 && catchUpWorkoutId;
+  if (!isCatchUp && trainedToday()) return; // Werktag: gesperrt, wenn heute schon erledigt
   const session = sessionForToday();
   session.checked[exId] = !session.checked[exId];
   save();
@@ -325,16 +325,15 @@ function toggleExercise(exId) {
 }
 
 function finishWorkout() {
-  if (trainedToday()) { toast('Heute schon trainiert – morgen wieder!'); return; }
-
   let wo;
   const idx = workoutIndexForToday();
   if (idx === -1) {
-    // Wochenende: nur mit ausgewähltem Nachhol-Training
+    // Wochenende: Nachholen – mehrere Trainings pro Tag erlaubt
     if (!catchUpWorkoutId) { toast('Am Wochenende ist Pause 🙂'); return; }
     wo = state.workouts.find((w) => w.id === catchUpWorkoutId);
     if (!wo) { catchUpWorkoutId = null; toast('Training nicht gefunden'); return; }
   } else {
+    if (trainedToday()) { toast('Heute schon trainiert – morgen wieder!'); return; }
     wo = state.workouts[idx];
   }
 
@@ -360,21 +359,28 @@ function finishWorkout() {
 /** Heutiges Training rückgängig machen: nur den heutigen Eintrag aus dem Verlauf
  *  entfernen und die abgehakten Übungen wiederherstellen (alles andere bleibt). */
 function undoToday() {
-  if (!trainedToday()) return;
-  if (!confirm('Heutiges Training zurücksetzen? Nur der heutige Eintrag wird aus dem Verlauf entfernt – dein übriger Verlauf bleibt erhalten.')) return;
+  const todayIso = todayISO();
+  // letzten heute abgeschlossenen Eintrag finden
+  let lastIdx = -1;
+  for (let i = state.history.length - 1; i >= 0; i--) {
+    if (state.history[i].date === todayIso) { lastIdx = i; break; }
+  }
+  if (lastIdx === -1) return;
+  if (!confirm('Dieses Training zurücksetzen? Nur der zuletzt heute abgeschlossene Eintrag wird entfernt – dein übriger Verlauf bleibt erhalten.')) return;
 
-  const entry = state.history.find((h) => h.date === todayISO());
+  const entry = state.history[lastIdx];
   const checked = {};
   if (entry && Array.isArray(entry.doneExerciseIds)) {
     entry.doneExerciseIds.forEach((id) => { checked[id] = true; });
   }
-  state.history = state.history.filter((h) => h.date !== todayISO());
-  state.session = { date: todayISO(), checked };
+  state.history.splice(lastIdx, 1);
+  state.session = { date: todayIso, checked };
+  catchUpWorkoutId = entry ? entry.workoutId : null; // am Wochenende: gleich wieder zu diesem Training springen
   save();
 
   renderToday();
   renderHistory();
-  toast('Heutiges Training zurückgesetzt');
+  toast('Training zurückgesetzt');
 }
 
 /* ---------- Rendering: Verlauf + Kalender ---------- */
