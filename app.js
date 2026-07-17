@@ -159,6 +159,27 @@ function sessionForToday() {
   return state.session;
 }
 
+/** Werktags-Trainings (Mo–Fr) dieser Woche, deren Tag schon vorbei ist und die
+ *  noch nicht (auch nicht nachträglich) abgeschlossen wurden. */
+function missedWorkoutsThisWeek() {
+  const today = todayISO();
+  const monday = startOfWeekISO(today);
+  const doneIds = new Set(
+    state.history.filter((h) => h.date >= monday && h.date <= today).map((h) => h.workoutId)
+  );
+  const todayWd = weekdayIndexOf(today); // 0=So … 6=Sa
+  const weekendNow = todayWd === 0 || todayWd === 6;
+
+  const missed = [];
+  for (let wd = 1; wd <= 5; wd++) {         // Mo(1) … Fr(5)
+    const dayPassed = weekendNow || wd < todayWd;
+    if (!dayPassed) continue;               // Tag noch nicht vorbei
+    const wo = state.workouts[wd - 1];
+    if (wo && !doneIds.has(wo.id)) missed.push(wo);
+  }
+  return missed;
+}
+
 /* ---------- Rendering: Heute ---------- */
 function renderToday() {
   const eyebrow = document.getElementById('todayEyebrow');
@@ -166,30 +187,89 @@ function renderToday() {
   const listEl = document.getElementById('exerciseList');
   const finishBtn = document.getElementById('finishBtn');
   const undoBtn = document.getElementById('undoTodayBtn');
+  const backBtn = document.getElementById('catchupBack');
+  const picker = document.getElementById('catchupPicker');
   const progressWrap = document.querySelector('#view-today .progress');
   const lastEl = document.getElementById('lastTrained');
 
   listEl.innerHTML = '';
+  picker.innerHTML = '';
+  picker.hidden = true;
+  backBtn.hidden = true;
+
   const idx = workoutIndexForToday();
   const wdLong = WEEKDAYS_LONG[weekdayIndexOf(todayISO())];
 
-  // --- Wochenende: Pause ---
+  let wo = null;
+  let isCatchUp = false;
+
+  // --- Wochenende ---
   if (idx === -1) {
-    eyebrow.textContent = wdLong;
-    nameEl.textContent = 'Pause 💤';
-    progressWrap.style.display = 'none';
-    finishBtn.style.display = 'none';
-    undoBtn.style.display = 'none';
-    lastEl.textContent = 'Am Wochenende ist Ruhetag. Genieß die Erholung!';
-    return;
+    // Heute schon ein (Nachhol-)Training abgeschlossen?
+    if (trainedToday()) {
+      const entry = state.history.find((h) => h.date === todayISO());
+      eyebrow.textContent = wdLong;
+      nameEl.textContent = entry ? entry.workoutName : 'Erledigt';
+      progressWrap.style.display = 'none';
+      finishBtn.style.display = 'none';
+      undoBtn.style.display = 'block';
+      lastEl.textContent = 'Nachhol-Training erledigt ✅';
+      return;
+    }
+
+    const missed = missedWorkoutsThisWeek();
+
+    // Nichts verpasst → normale Pause
+    if (missed.length === 0) {
+      eyebrow.textContent = wdLong;
+      nameEl.textContent = 'Pause 💤';
+      progressWrap.style.display = 'none';
+      finishBtn.style.display = 'none';
+      undoBtn.style.display = 'none';
+      lastEl.textContent = 'Am Wochenende ist Ruhetag. Genieß die Erholung!';
+      return;
+    }
+
+    // Gemerkte Auswahl bereinigen, falls nicht mehr verpasst
+    if (catchUpWorkoutId && !missed.some((m) => m.id === catchUpWorkoutId)) {
+      catchUpWorkoutId = null;
+    }
+
+    // Noch nichts gewählt → Auswahl der verpassten Trainings zeigen
+    if (!catchUpWorkoutId) {
+      eyebrow.textContent = wdLong + ' · Nachholen';
+      nameEl.textContent = missed.length === 1 ? '1 Training verpasst' : missed.length + ' Trainings verpasst';
+      progressWrap.style.display = 'none';
+      finishBtn.style.display = 'none';
+      undoBtn.style.display = 'none';
+      picker.hidden = false;
+      missed.forEach((m) => {
+        const b = document.createElement('button');
+        b.className = 'catchup-option';
+        b.innerHTML = `<span class="co-day"></span><span class="co-name"></span>`;
+        b.querySelector('.co-day').textContent = m.day;
+        b.querySelector('.co-name').textContent = m.name;
+        b.addEventListener('click', () => { catchUpWorkoutId = m.id; renderToday(); });
+        picker.appendChild(b);
+      });
+      lastEl.textContent = 'Diese Woche verpasst – hol ein Training am Wochenende nach.';
+      return;
+    }
+
+    // Nachhol-Training gewählt → wie ein normales Training rendern
+    wo = state.workouts.find((w) => w.id === catchUpWorkoutId);
+    isCatchUp = true;
+    backBtn.hidden = missed.length <= 1;
+  } else {
+    wo = state.workouts[idx];
   }
 
-  const wo = state.workouts[idx];
-  eyebrow.textContent = wdLong;
+  // --- Gemeinsames Rendering eines Trainings ---
+  eyebrow.textContent = isCatchUp ? ('Nachholen · ' + wo.day) : wdLong;
   nameEl.textContent = wo.name;
   progressWrap.style.display = 'flex';
 
-  const alreadyDone = trainedToday();
+  const alreadyDone = !isCatchUp && trainedToday();
   const session = sessionForToday();
 
   let doneSet;
@@ -222,7 +302,9 @@ function renderToday() {
     finishBtn.style.display = 'block';
     finishBtn.disabled = total === 0;
     undoBtn.style.display = 'none';
-    lastEl.textContent = lastTrainedText();
+    lastEl.textContent = isCatchUp
+      ? 'Nachhol-Training: Übungen abhaken und „Training abschließen".'
+      : lastTrainedText();
   }
 }
 
@@ -243,11 +325,19 @@ function toggleExercise(exId) {
 }
 
 function finishWorkout() {
-  const idx = workoutIndexForToday();
-  if (idx === -1) { toast('Am Wochenende ist Pause 🙂'); return; }
   if (trainedToday()) { toast('Heute schon trainiert – morgen wieder!'); return; }
 
-  const wo = state.workouts[idx];
+  let wo;
+  const idx = workoutIndexForToday();
+  if (idx === -1) {
+    // Wochenende: nur mit ausgewähltem Nachhol-Training
+    if (!catchUpWorkoutId) { toast('Am Wochenende ist Pause 🙂'); return; }
+    wo = state.workouts.find((w) => w.id === catchUpWorkoutId);
+    if (!wo) { catchUpWorkoutId = null; toast('Training nicht gefunden'); return; }
+  } else {
+    wo = state.workouts[idx];
+  }
+
   const session = sessionForToday();
   const doneIds = wo.exercises.filter((ex) => session.checked[ex.id]).map((ex) => ex.id);
 
@@ -259,11 +349,12 @@ function finishWorkout() {
     totalExercises: wo.exercises.length,
   });
   state.session = { date: todayISO(), checked: {} };
+  catchUpWorkoutId = null;
   save();
 
   renderToday();
   renderHistory();
-  toast('Stark! Training gespeichert 💪');
+  toast(idx === -1 ? 'Nachgeholt! Training gespeichert 💪' : 'Stark! Training gespeichert 💪');
 }
 
 /** Heutiges Training rückgängig machen: nur den heutigen Eintrag aus dem Verlauf
@@ -293,6 +384,7 @@ function trainingsThisWeek() {
 }
 
 let calState = null; // { year, month }  (month 0-basiert)
+let catchUpWorkoutId = null; // am Wochenende ausgewähltes Nachhol-Training (nur zur Laufzeit)
 
 function ensureCalState() {
   if (!calState) {
@@ -555,6 +647,7 @@ function init() {
   });
   document.getElementById('finishBtn').addEventListener('click', finishWorkout);
   document.getElementById('undoTodayBtn').addEventListener('click', undoToday);
+  document.getElementById('catchupBack').addEventListener('click', () => { catchUpWorkoutId = null; renderToday(); });
   document.getElementById('exportBtn').addEventListener('click', exportData);
   document.getElementById('resetBtn').addEventListener('click', resetData);
   document.getElementById('calPrev').addEventListener('click', () => shiftMonth(-1));

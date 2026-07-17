@@ -113,6 +113,25 @@ body {
 .btn-danger { color: var(--danger); border-color: rgba(251, 113, 133, .4); }
 #undoTodayBtn { margin-top: 12px; }
 
+/* Nachhol-Auswahl am Wochenende */
+.catchup-picker { display: flex; flex-direction: column; gap: 12px; }
+.catchup-option {
+  font: inherit; color: var(--text); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 15px 16px; box-shadow: var(--shadow-sm);
+  display: flex; align-items: center; gap: 14px; text-align: left;
+  transition: transform .1s, border-color .15s, background .15s;
+}
+.catchup-option:active { transform: scale(.98); }
+.catchup-option:hover { border-color: rgba(168, 85, 247, .5); background: var(--accent-soft); }
+.catchup-option .co-day {
+  flex: 0 0 auto; min-width: 42px; text-align: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; font-weight: 800; border-radius: 11px; padding: 8px 6px; font-size: .9rem;
+}
+.catchup-option .co-name { font-weight: 700; }
+.catchup-back { margin-top: 12px; color: var(--text-dim); font-weight: 600; }
+
 .hint { color: var(--text-dim); font-size: .88rem; margin-top: 14px; text-align: center; }
 
 /* Stats */
